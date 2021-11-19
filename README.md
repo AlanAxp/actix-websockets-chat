@@ -12,3 +12,7 @@ Es importante tener en cuenta que el actor solo existe en la memoria, con su dir
 
 En actix web, cada conexión de socket es su propio actor, y el "Lobby" es también su propio actor.
 
+## Estructura
+
+Cada enchufe se encuentra en una "room" y cada room se encuentra en una estructura de lobby singular.
+
