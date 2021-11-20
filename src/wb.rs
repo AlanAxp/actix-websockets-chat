@@ -61,8 +61,6 @@ impl Actor for WsConn {
     type Context = ws::WebsocketContext<Self>;
 
     // Escribimos el metodo para iniciar/crear el actor
-
-We also take the address of the lobby and send it a message saying "Hey! I connected. This is the lobby I want to get into, and my id, as well as the address of my mailbox you can reach me at." We send that message asynchronously. If we did do_send instead of send, we'd be sending it kind of synchronously. By kind of, I mean "chuck the message at the mailbox and drive away." do_send doesn't care if the message ever sent or got read. send needs to be awaited, which is the purpose of this block:
     fn started(&mut self, ctx: &mut Self::Context) {
 
         // Iniciamos con un heartbeat loop, Funcion que se dispara en un intervalo.
@@ -73,21 +71,31 @@ We also take the address of the lobby and send it a message saying "Hey! I conne
         
         self.lobby_addr
 
-            // Enviamos un "mensaje" diciendo
-            .send(Connect {
+            // Es como mandar un mensaje diciendo:
+            .send(Connect { // Si hacemos un do_send, seria convertirlo a un sync. Send necesita ser "esperado" await
+                
+                // Esta es la direccion de mi maibox puedes encontrarme
                 addr: addr.recipient(),
+
+                // El lobby al que quiero entrar
                 lobby_id: self.room,
+
+                // La identificacion donde me pueden encontrar
                 self_id: self.id,
             })
             .into_actor(self)
             .then(|res, _, ctx| {
                 match res {
                     Ok(_res) => (),
+
+                    //  Si algo falla, simplemente detenemos todo el Actor con ctx.stop(), es probable que no suceda , pero algo malo podria pasar con el lobby
+                    // Entonces si algo sale mal es mas facil detenerlo y enviamos un mensaje de dsesconeccion.
                     _ => ctx.stop(),
                 }
                 fut::ready(())
             })
             .wait(ctx);
+            // Nuestro WsConn ahora es actor.
     }
 
     // Escribimos el metodo para finalizar/destruir el actor
