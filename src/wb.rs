@@ -103,4 +103,88 @@ impl Actor for WsConn {
         self.lobby_addr.do_send(Disconnect { id: self.id, room_id: self.room });
         Running::Stop
     }
+
+    // Ahora nuestro WsConn es un actor
+
+    // Y ahora crearemos el latido heartbeat 
+
+
+}
+
+
+impl WsConn {
+
+    // Todo lo que hacemos aquí es hacer ping al cliente y esperar una respuesta en un intervalo. Si la respuesta no llega, el enchufe murió; envíe una desconexión y detenga al cliente.
+    fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                println!("Disconnecting failed heartbeat");
+                act.lobby_addr.do_send(Disconnect { id: act.id, room_id: act.room });
+                ctx.stop();
+                return;
+            }
+
+            ctx.ping(b"PING");
+        });
+    }
+}
+
+impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsConn {
+    fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
+        // Es una simple coincidencia de patrones en todos los posibles mensajes de WebSocket.
+        match msg {
+            // El ping responde con un pong, ese es el cliente que nos late. Responde con un pong. Como subproducto, dado que el cliente puede latirnos, sabemos que está vivo para que podamos restablecer nuestro reloj de latidos.
+            Ok(ws::Message::Ping(msg)) => {
+                self.hb = Instant::now();
+                ctx.pong(&msg);
+            }
+            
+            // El pong es la respuesta al ping que enviamos. Reinicia nuestro reloj, están vivos.
+            Ok(ws::Message::Pong(_)) => {
+                self.hb = Instant::now();
+            }
+
+            // Si el mensaje es binario, lo enviaremos al contexto de WebSocket que descubrirá qué hacer con él. Esto, de manera realista, nunca debería activarse.
+            Ok(ws::Message::Binary(bin)) => ctx.binary(bin),
+
+            // If it's a close message just close.
+            Ok(ws::Message::Close(reason)) => {
+                ctx.close(reason);
+                ctx.stop();
+            }
+
+            // Para este tutorial, no vamos a responder a los marcos de continuación (estos son, en resumen, mensajes de WebSocket que no caben en un solo mensaje)
+            Ok(ws::Message::Continuation(_)) => {
+                ctx.stop();
+            }
+
+            // On nop, nop (sin operación)
+            Ok(ws::Message::Nop) => (),
+
+            // En un mensaje de texto, (¡este es el que más haremos!) Envíelo al lobby. El lobby se ocupará de negociarlo hasta donde tenga que ir.
+            Ok(Text(s)) => self.lobby_addr.do_send(ClientActorMessage {
+                id: self.id,
+                msg: s,
+                room_id: self.room
+            }),
+
+            // En caso de error, entraremos en pánico. Probablemente desee implementar lo que debe hacer aquí de manera razonable.
+            Err(e) => panic!(e),
+        }
+    }
+}
+
+// Si el servidor pone un `WsMessage` (El cual debemos definir), todo lo que haremos es enviar directamente al cliente.
+
+// Así es como se ve "leer el correo" del buzón; impl Handler <MailType> para ACTOR
+// Necesitamos definir cómo se verá la respuesta a ese correo. Si el correo se coloca como do_send, el tipo de respuesta no importa. Si se coloca como send(), entonces el tipo de resultado esperado será el resultado. tal vez escriba Result = String, o algo similar. Independientemente, sea cual sea el tipo T que coloque allí, el identificador debe devolver T.
+
+impl Handler<WsMessage> for WsConn {
+    // El The message en si mismo, tenemos el control total sobre que tanto o que tan poca informacion el mensaje permite mandar.
+    type Result = ();
+
+    // Self context. This is your own context, which is a "mailbox" of self. You can read memeber variables from the ctx, or you can put messages into your own mailbox here.
+    fn handle(&mut self, msg: WsMessage, ctx: &mut Self::Context) {
+        ctx.text(msg.0);
+    }
 }
